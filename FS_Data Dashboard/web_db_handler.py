@@ -6,8 +6,8 @@ import os
 import sys
 import pyodbc
 import pandas as pd
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from contextlib import closing
+from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
 # Windows 콘솔 UTF-8 인코딩 설정
@@ -72,88 +72,81 @@ def save_daily_metrics(project: str, country: str, date: str, metrics: Dict[str,
     Returns:
         bool: 성공 여부
     """
-    conn = None
+    conn = get_connection()
+    if not conn:
+        return False
+
     try:
-        conn = get_connection()
-        if not conn:
-            return False
-        
-        cursor = conn.cursor()
-        
-        # 기존 데이터 확인
-        check_sql = """
-            SELECT id FROM daily_metrics 
-            WHERE project = ? AND country = ? AND date = ?
-        """
-        cursor.execute(check_sql, (project, country, date))
-        existing = cursor.fetchone()
-        
-        if existing:
-            # UPDATE
-            update_sql = """
-                UPDATE daily_metrics
-                SET dau = ?, dru = ?, dbu = ?, sales = ?, pc_room_sales = ?,
-                    pu = ?, avg_concurrent = ?, max_concurrent = ?, 
-                    play_rounds = ?, play_time_minutes = ?,
-                    updated_at = GETDATE()
+        with closing(conn.cursor()) as cursor:
+            # 기존 데이터 확인
+            check_sql = """
+                SELECT id FROM daily_metrics
                 WHERE project = ? AND country = ? AND date = ?
             """
-            cursor.execute(update_sql, (
-                metrics.get('dau'),
-                metrics.get('dru'),
-                metrics.get('dbu'),
-                metrics.get('sales'),
-                metrics.get('pc_room_sales'),
-                metrics.get('pu'),
-                metrics.get('avg_concurrent'),
-                metrics.get('max_concurrent'),
-                metrics.get('play_rounds'),
-                metrics.get('play_time_minutes'),
-                project, country, date
-            ))
-            action = "UPDATE"
-        else:
-            # INSERT
-            insert_sql = """
-                INSERT INTO daily_metrics 
-                (project, country, date, dau, dru, dbu, sales, pc_room_sales,
-                 pu, avg_concurrent, max_concurrent, play_rounds, play_time_minutes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
-            cursor.execute(insert_sql, (
-                project, country, date,
-                metrics.get('dau'),
-                metrics.get('dru'),
-                metrics.get('dbu'),
-                metrics.get('sales'),
-                metrics.get('pc_room_sales'),
-                metrics.get('pu'),
-                metrics.get('avg_concurrent'),
-                metrics.get('max_concurrent'),
-                metrics.get('play_rounds'),
-                metrics.get('play_time_minutes')
-            ))
-            action = "INSERT"
-        
+            cursor.execute(check_sql, (project, country, date))
+            existing = cursor.fetchone()
+
+            if existing:
+                # UPDATE
+                update_sql = """
+                    UPDATE daily_metrics
+                    SET dau = ?, dru = ?, dbu = ?, sales = ?, pc_room_sales = ?,
+                        pu = ?, avg_concurrent = ?, max_concurrent = ?,
+                        play_rounds = ?, play_time_minutes = ?,
+                        updated_at = GETDATE()
+                    WHERE project = ? AND country = ? AND date = ?
+                """
+                cursor.execute(update_sql, (
+                    metrics.get('dau'),
+                    metrics.get('dru'),
+                    metrics.get('dbu'),
+                    metrics.get('sales'),
+                    metrics.get('pc_room_sales'),
+                    metrics.get('pu'),
+                    metrics.get('avg_concurrent'),
+                    metrics.get('max_concurrent'),
+                    metrics.get('play_rounds'),
+                    metrics.get('play_time_minutes'),
+                    project, country, date
+                ))
+                action = "UPDATE"
+            else:
+                # INSERT
+                insert_sql = """
+                    INSERT INTO daily_metrics
+                    (project, country, date, dau, dru, dbu, sales, pc_room_sales,
+                     pu, avg_concurrent, max_concurrent, play_rounds, play_time_minutes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                cursor.execute(insert_sql, (
+                    project, country, date,
+                    metrics.get('dau'),
+                    metrics.get('dru'),
+                    metrics.get('dbu'),
+                    metrics.get('sales'),
+                    metrics.get('pc_room_sales'),
+                    metrics.get('pu'),
+                    metrics.get('avg_concurrent'),
+                    metrics.get('max_concurrent'),
+                    metrics.get('play_rounds'),
+                    metrics.get('play_time_minutes')
+                ))
+                action = "INSERT"
+
         conn.commit()
-        cursor.close()
-        conn.close()
-        
         print(f"[SUCCESS] {action} - {project}/{country}/{date}")
         return True
-        
+
     except pyodbc.Error as e:
         print(f"[ERROR] 데이터 저장 실패: {e}")
-        if conn:
-            conn.rollback()
-            conn.close()
+        conn.rollback()
         return False
     except Exception as e:
         print(f"[ERROR] 예상치 못한 오류: {e}")
-        if conn:
-            conn.rollback()
-            conn.close()
+        conn.rollback()
         return False
+    finally:
+        conn.close()
 
 
 def query_daily_metrics(project: str, country: str, 
@@ -171,15 +164,14 @@ def query_daily_metrics(project: str, country: str,
     Returns:
         pd.DataFrame: 조회된 데이터프레임 또는 None
     """
-    conn = None
+    conn = get_connection()
+    if not conn:
+        return None
+
     try:
-        conn = get_connection()
-        if not conn:
-            return None
-        
         # 쿼리 생성
         sql = """
-            SELECT 
+            SELECT
                 date as Date,
                 dau as DAU,
                 dru as DRU,
@@ -195,37 +187,34 @@ def query_daily_metrics(project: str, country: str,
             WHERE project = ? AND country = ?
         """
         params = [project, country]
-        
+
         if start_date:
             sql += " AND date >= ?"
             params.append(start_date)
-        
+
         if end_date:
             sql += " AND date <= ?"
             params.append(end_date)
-        
+
         sql += " ORDER BY date"
-        
+
         # 데이터 조회
         df = pd.read_sql(sql, conn, params=params)
-        
+
         # Date 컬럼을 datetime으로 변환
         if not df.empty and 'Date' in df.columns:
             df['Date'] = pd.to_datetime(df['Date'])
-        
-        conn.close()
+
         return df
-        
+
     except pyodbc.Error as e:
         print(f"[ERROR] 데이터 조회 실패: {e}")
-        if conn:
-            conn.close()
         return None
     except Exception as e:
         print(f"[ERROR] 예상치 못한 오류: {e}")
-        if conn:
-            conn.close()
         return None
+    finally:
+        conn.close()
 
 
 def save_monthly_target(project: str, country: str, year_month: str, 
@@ -243,62 +232,56 @@ def save_monthly_target(project: str, country: str, year_month: str,
     Returns:
         bool: 성공 여부
     """
-    conn = None
+    conn = get_connection()
+    if not conn:
+        return False
+
     try:
-        conn = get_connection()
-        if not conn:
-            return False
-        
-        cursor = conn.cursor()
-        
-        # 기존 데이터 확인
-        check_sql = """
-            SELECT id FROM monthly_targets 
-            WHERE project = ? AND country = ? AND year_month = ?
-        """
-        cursor.execute(check_sql, (project, country, year_month))
-        existing = cursor.fetchone()
-        
-        if existing:
-            # UPDATE
-            update_sql = """
-                UPDATE monthly_targets
-                SET target_sales = ?, expected_sales = ?, updated_at = GETDATE()
+        with closing(conn.cursor()) as cursor:
+            # 기존 데이터 확인
+            check_sql = """
+                SELECT id FROM monthly_targets
                 WHERE project = ? AND country = ? AND year_month = ?
             """
-            cursor.execute(update_sql, (
-                target_sales, expected_sales, 
-                project, country, year_month
-            ))
-        else:
-            # INSERT
-            insert_sql = """
-                INSERT INTO monthly_targets 
-                (project, country, year_month, target_sales, expected_sales)
-                VALUES (?, ?, ?, ?, ?)
-            """
-            cursor.execute(insert_sql, (
-                project, country, year_month, 
-                target_sales, expected_sales
-            ))
-        
+            cursor.execute(check_sql, (project, country, year_month))
+            existing = cursor.fetchone()
+
+            if existing:
+                # UPDATE
+                update_sql = """
+                    UPDATE monthly_targets
+                    SET target_sales = ?, expected_sales = ?, updated_at = GETDATE()
+                    WHERE project = ? AND country = ? AND year_month = ?
+                """
+                cursor.execute(update_sql, (
+                    target_sales, expected_sales,
+                    project, country, year_month
+                ))
+            else:
+                # INSERT
+                insert_sql = """
+                    INSERT INTO monthly_targets
+                    (project, country, year_month, target_sales, expected_sales)
+                    VALUES (?, ?, ?, ?, ?)
+                """
+                cursor.execute(insert_sql, (
+                    project, country, year_month,
+                    target_sales, expected_sales
+                ))
+
         conn.commit()
-        cursor.close()
-        conn.close()
         return True
-        
+
     except pyodbc.Error as e:
         print(f"[ERROR] 월간 목표 저장 실패: {e}")
-        if conn:
-            conn.rollback()
-            conn.close()
+        conn.rollback()
         return False
     except Exception as e:
         print(f"[ERROR] 예상치 못한 오류: {e}")
-        if conn:
-            conn.rollback()
-            conn.close()
+        conn.rollback()
         return False
+    finally:
+        conn.close()
 
 
 def query_monthly_targets(project: str, country: str) -> Optional[pd.DataFrame]:
@@ -312,14 +295,13 @@ def query_monthly_targets(project: str, country: str) -> Optional[pd.DataFrame]:
     Returns:
         pd.DataFrame: 조회된 데이터프레임 또는 None
     """
-    conn = None
+    conn = get_connection()
+    if not conn:
+        return None
+
     try:
-        conn = get_connection()
-        if not conn:
-            return None
-        
         sql = """
-            SELECT 
+            SELECT
                 year_month as YearMonth,
                 target_sales as 목표매출,
                 expected_sales as 예상매출
@@ -327,26 +309,23 @@ def query_monthly_targets(project: str, country: str) -> Optional[pd.DataFrame]:
             WHERE project = ? AND country = ?
             ORDER BY year_month
         """
-        
+
         df = pd.read_sql(sql, conn, params=[project, country])
-        
+
         # YearMonth를 datetime으로 변환
         if not df.empty and 'YearMonth' in df.columns:
             df['YearMonth'] = pd.to_datetime(df['YearMonth'])
-        
-        conn.close()
+
         return df
-        
+
     except pyodbc.Error as e:
         print(f"[ERROR] 월간 목표 조회 실패: {e}")
-        if conn:
-            conn.close()
         return None
     except Exception as e:
         print(f"[ERROR] 예상치 못한 오류: {e}")
-        if conn:
-            conn.close()
         return None
+    finally:
+        conn.close()
 
 
 def log_collection(project: str, country: str, status: str, 
@@ -367,42 +346,36 @@ def log_collection(project: str, country: str, status: str,
     Returns:
         bool: 성공 여부
     """
-    conn = None
+    conn = get_connection()
+    if not conn:
+        return False
+
     try:
-        conn = get_connection()
-        if not conn:
-            return False
-        
-        cursor = conn.cursor()
-        
-        insert_sql = """
-            INSERT INTO collection_logs 
-            (project, country, status, records_inserted, records_updated, 
-             error_message, execution_time_seconds)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """
-        cursor.execute(insert_sql, (
-            project, country, status, records_inserted, records_updated,
-            error_message, execution_time
-        ))
-        
+        with closing(conn.cursor()) as cursor:
+            insert_sql = """
+                INSERT INTO collection_logs
+                (project, country, status, records_inserted, records_updated,
+                 error_message, execution_time_seconds)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """
+            cursor.execute(insert_sql, (
+                project, country, status, records_inserted, records_updated,
+                error_message, execution_time
+            ))
+
         conn.commit()
-        cursor.close()
-        conn.close()
         return True
-        
+
     except pyodbc.Error as e:
         print(f"[WARNING] 로그 기록 실패: {e}")
-        if conn:
-            conn.rollback()
-            conn.close()
+        conn.rollback()
         return False
     except Exception as e:
         print(f"[WARNING] 로그 기록 중 오류: {e}")
-        if conn:
-            conn.rollback()
-            conn.close()
+        conn.rollback()
         return False
+    finally:
+        conn.close()
 
 
 def get_latest_date(project: str, country: str) -> Optional[str]:
@@ -416,50 +389,45 @@ def get_latest_date(project: str, country: str) -> Optional[str]:
     Returns:
         str: 최신 날짜 (YYYY-MM-DD) 또는 None
     """
-    conn = None
+    conn = get_connection()
+    if not conn:
+        return None
+
     try:
-        conn = get_connection()
-        if not conn:
-            return None
-        
-        cursor = conn.cursor()
-        
-        sql = """
-            SELECT MAX(date) FROM daily_metrics
-            WHERE project = ? AND country = ?
-        """
-        cursor.execute(sql, (project, country))
-        result = cursor.fetchone()
-        
-        cursor.close()
-        conn.close()
-        
+        with closing(conn.cursor()) as cursor:
+            sql = """
+                SELECT MAX(date) FROM daily_metrics
+                WHERE project = ? AND country = ?
+            """
+            cursor.execute(sql, (project, country))
+            result = cursor.fetchone()
+
         if result and result[0]:
             return result[0].strftime('%Y-%m-%d')
         return None
-        
+
     except pyodbc.Error as e:
         print(f"[ERROR] 최신 날짜 조회 실패: {e}")
-        if conn:
-            conn.close()
         return None
     except Exception as e:
         print(f"[ERROR] 예상치 못한 오류: {e}")
-        if conn:
-            conn.close()
         return None
+    finally:
+        conn.close()
 
 
 def test_connection() -> bool:
     """웹 DB 연결 테스트"""
     conn = get_connection()
-    if conn:
-        print("[SUCCESS] 웹 DB 연결 성공!")
-        conn.close()
-        return True
-    else:
+    if not conn:
         print("[ERROR] 웹 DB 연결 실패!")
         return False
+
+    try:
+        print("[SUCCESS] 웹 DB 연결 성공!")
+        return True
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":
