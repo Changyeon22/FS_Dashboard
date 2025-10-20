@@ -1,0 +1,55 @@
+# ========================================
+# FS Dashboard 환경 변수 템플릿
+# ========================================
+# 이 파일을 .env로 복사하고 실제 값으로 수정하세요.
+
+# ========================================
+# 게임 백업 DB 설정 (SQL Server)
+# ========================================
+BACKUP_DB_SERVER=10.20.252.178
+BACKUP_DB_PORT=1433
+BACKUP_DB_USER=your_username
+BACKUP_DB_PASSWORD=your_password
+BACKUP_DB_DRIVER=ODBC Driver 17 for SQL Server
+
+# 프로젝트별 DB 이름 (실제 DB 이름으로 변경)
+BACKUP_DB_FS1_KOR=FS1_KOR_DB
+BACKUP_DB_FS1_CHN=FS1_CHN_DB
+BACKUP_DB_FS1_SEA=FS1_SEA_DB
+BACKUP_DB_FS2_KOR=FS2_KOR_DB
+BACKUP_DB_FS2_CHN=FS2_CHN_DB
+BACKUP_DB_FS2_GSP=FS2_GSP_DB
+
+# ========================================
+# 웹 DB 설정 (로컬 SQL Server)
+# ========================================
+WEB_DB_SERVER=localhost
+WEB_DB_NAME=FS_Dashboard
+WEB_DB_PORT=1433
+WEB_DB_DRIVER=ODBC Driver 17 for SQL Server
+
+# Windows 인증 사용 (True/False)
+WEB_DB_USE_WINDOWS_AUTH=True
+
+# Windows 인증을 사용하지 않는 경우 아래 설정
+# WEB_DB_USER=your_username
+# WEB_DB_PASSWORD=your_password
+
+# ========================================
+# 데이터 수집 스케줄
+# ========================================
+COLLECTION_TIME=09:00
+COLLECTION_TIMEZONE=Asia/Seoul
+
+# ========================================
+# 레거시 설정 (더 이상 사용하지 않음)
+# ========================================
+# 이메일 설정
+# GMAIL_ADDRESS=your_email@gmail.com
+# GMAIL_APP_PASSWORD=your_16_digit_app_password
+# IMAP_SERVER=imap.gmail.com
+# TARGET_EMAIL_SUBJECT=일일 리포트
+
+# OpenAI API 키 (레거시 시스템)
+# OPENAI_API_KEY=sk-your-api-key-here
+
