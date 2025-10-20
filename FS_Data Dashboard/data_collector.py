@@ -6,6 +6,8 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta
+from functools import lru_cache
+from typing import Dict
 from dotenv import load_dotenv
 from config import get_all_project_country_combinations, COUNTRY_NAMES
 from backup_db_handler import fetch_daily_metrics
@@ -68,7 +70,21 @@ def collect_data_for_date(project: str, country: str, date: str) -> bool:
         return False
 
 
-def get_test_date_mapping():
+def _create_date_range_mapping(start_date: str, mapped_start_date: str, days: int) -> Dict[str, str]:
+    """지정한 날짜 범위를 다른 날짜 범위에 매핑합니다."""
+    start = datetime.strptime(start_date, '%Y-%m-%d')
+    mapped_start = datetime.strptime(mapped_start_date, '%Y-%m-%d')
+
+    return {
+        (start + timedelta(days=offset)).strftime('%Y-%m-%d'): (
+            mapped_start + timedelta(days=offset)
+        ).strftime('%Y-%m-%d')
+        for offset in range(days)
+    }
+
+
+@lru_cache(maxsize=1)
+def get_test_date_mapping() -> Dict[str, str]:
     """
     테스트 기간 날짜 매핑을 반환합니다.
     테스트 기간 동안 지속적으로 사용할 수 있도록 범위를 확장합니다.
@@ -81,19 +97,9 @@ def get_test_date_mapping():
     
     # 2025년 10월 18일부터 11월 30일까지의 매핑
     mapping = {}
-    
-    # 2025-10-18 ~ 2025-10-31: 2022-02-16 ~ 2022-02-29
-    for i in range(14):  # 10월 18일부터 31일까지 (14일)
-        current_date = f"2025-10-{18 + i:02d}"
-        mapped_date = f"2022-02-{16 + i:02d}"
-        mapping[current_date] = mapped_date
-    
-    # 2025-11-01 ~ 2025-11-30: 2022-03-01 ~ 2022-03-30
-    for i in range(30):  # 11월 1일부터 30일까지 (30일)
-        current_date = f"2025-11-{1 + i:02d}"
-        mapped_date = f"2022-03-{1 + i:02d}"
-        mapping[current_date] = mapped_date
-    
+    mapping.update(_create_date_range_mapping('2025-10-18', '2022-02-16', 14))
+    mapping.update(_create_date_range_mapping('2025-11-01', '2022-03-01', 30))
+
     return mapping
 
 
@@ -166,11 +172,10 @@ def collect_date_range_data(start_date: str, end_date: str):
     # 날짜 범위 생성
     start = datetime.strptime(start_date, '%Y-%m-%d')
     end = datetime.strptime(end_date, '%Y-%m-%d')
-    date_range = []
-    current = start
-    while current <= end:
-        date_range.append(current.strftime('%Y-%m-%d'))
-        current += timedelta(days=1)
+    date_range = [
+        (start + timedelta(days=offset)).strftime('%Y-%m-%d')
+        for offset in range((end - start).days + 1)
+    ]
     
     # 모든 프로젝트/국가 조합 가져오기
     combinations = get_all_project_country_combinations()
